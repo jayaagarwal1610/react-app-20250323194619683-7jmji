@@ -1,0 +1,71 @@
+name: Deploy React App
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          
+      - name: Generate proper package-lock.json
+        run: |
+          # Remove any existing lock file to avoid conflicts
+          if [ -f "package-lock.json" ]; then rm package-lock.json; fi
+          if [ -f "yarn.lock" ]; then rm yarn.lock; fi
+          
+          # Generate a fresh package-lock.json
+          npm install --package-lock-only
+          echo "Generated fresh package-lock.json"
+          
+      - name: Install dependencies
+        run: npm install
+        
+      - name: Update public path for GitHub Pages
+        run: |
+          if [ -f "package.json" ]; then
+            REPO_NAME=$(echo $GITHUB_REPOSITORY | sed 's/.*\///')
+            if [ -f ".env" ]; then
+              echo "PUBLIC_URL=/$REPO_NAME" >> .env
+            else
+              echo "PUBLIC_URL=/$REPO_NAME" > .env
+            fi
+            # Create or update homepage in package.json
+            npm pkg set homepage="https://$GITHUB_REPOSITORY_OWNER.github.io/$REPO_NAME/"
+          fi
+      
+      - name: Find and fix template literal errors
+        run: |
+          echo "Checking for files with potential template literal issues..."
+          # Fix any ${} in .env file
+          if [ -f ".env" ]; then
+            sed -i 's/\${/$/g' .env
+            echo "Fixed .env file:"
+            cat .env
+          fi
+          
+          # Look for backtick issues in TypeScript files
+          echo "Searching for unclosed template literals in TypeScript files..."
+          find src -type f -name "*.tsx" -o -name "*.ts" | xargs grep -l '`' || echo "No files with backticks found"
+        
+      - name: Build project
+        run: npm run build
+        
+      - name: Deploy to GitHub Pages
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: build # The folder the action should deploy
+          branch: gh-pages # The branch the action should deploy to 
